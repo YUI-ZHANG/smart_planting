@@ -2,7 +2,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 from sqlalchemy import create_engine, text
-from flask_app import get_latest_data
+from flask_app import get_plant_data
 
 engine = create_engine('sqlite:///plant_data.db')
 # 你的 Google Sheets API 憑證設定

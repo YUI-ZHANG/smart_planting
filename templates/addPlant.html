@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>新增植物</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #FFF1E0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .modal-container {
+            background-color: #8EBB81;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+            color: #FFF1E0;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .modal-container h2 {
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            color: #FFF1E0;
+            margin-bottom: 5px;
+            text-align: left;
+            font-weight: bold;
+        }
+        .form-group input[type="text"] {
+            width: calc(100% - 20px);
+            padding: 10px;
+            border-radius: 10px;
+            border: none;
+            background-color: #FFF1E0;
+            color: #333;
+        }
+        .form-group input[type="file"] {
+            color: #FFF1E0;
+            text-align: center;
+        }
+        .buttons {
+            display: flex;
+            justify-content: space-around;
+            gap: 10px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: transform 0.2s ease;
+        }
+        .btn:active {
+            transform: scale(0.95);
+        }
+        .btn-primary {
+            background-color: #FFF1E0;
+            color: #8EBB81;
+        }
+        .btn-secondary {
+            background-color: transparent;
+            border: 2px solid #FFF1E0;
+            color: #FFF1E0;
+        }
+        .pairing-section {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        .pairing-code {
+            font-size: 36px;
+            font-weight: bold;
+            background-color: #FFF1E0;
+            color: #8EBB81;
+            padding: 10px 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .copy-btn {
+            background-color: #FFF1E0;
+            color: #8EBB81;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+        .copy-btn:active {
+            transform: scale(0.95);
+        }
+        #qrcode {
+            background-color: #fff;
+            padding: 10px;
+            border-radius: 10px;
+        }
+    </style>
+    <script src="https://cdn.rawgit.com/davidshimjs/qrcodejs/gh-pages/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="modal-container">
+        <div id="add-form-section">
+            <h2>新增植物</h2>
+            <form id="add-plant-form" action="/create_plant" method="POST" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="plant-name">植物名稱</label>
+                    <input type="text" id="plant-name" name="plant_name" required>
+                </div>
+                <div class="form-group">
+                    <label for="plant-photo">植物照片</label>
+                    <input type="file" id="plant-photo" name="plant_photo" accept="image/*">
+                </div>
+                <div class="buttons">
+                    <button type="button" class="btn btn-secondary" onclick="window.history.back()">取消</button>
+                    <button type="submit" class="btn btn-primary">建立</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="pairing-section" class="pairing-section">
+            <h2>配對裝置</h2>
+            <p>請將裝置連上Wi-Fi，並在配對頁面輸入以下配對碼：</p>
+            <div class="pairing-code" id="pairing-code"></div>
+            <button class="copy-btn" onclick="copyCode()">複製配對碼</button>
+            <p>或用手機掃描以下QR Code，直接進入Wi-Fi設定模式：</p>
+            <div id="qrcode"></div>
+            <p style="font-size:14px; text-align: left;">1. 裝置首次啟動會廣播 Wi-Fi 熱點。<br>2. 手機連線到名為「Plant-Setup」的 Wi-Fi 熱點。<br>3. 瀏覽器會自動跳出設定頁面，請輸入您的家用 Wi-Fi 資訊及上方配對碼。<br>4. 設定完成後，裝置會自動連線並開始運作。</p>
+            <div class="buttons">
+                <button type="button" class="btn btn-primary" onclick="window.location.href='/'">完成</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const form = document.getElementById('add-plant-form');
+        form.addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            const formSection = document.getElementById('add-form-section');
+            const pairingSection = document.getElementById('pairing-section');
+
+            try {
+                const response = await fetch(this.action, {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    const pairingCode = result.pairing_code;
+                    const deviceUrl = result.device_url;
+                    
+                    formSection.style.display = 'none';
+                    pairingSection.style.display = 'flex';
+                    document.getElementById('pairing-code').textContent = pairingCode;
+                    
+                    new QRCode(document.getElementById("qrcode"), {
+                        text: deviceUrl,
+                        width: 128,
+                        height: 128
+                    });
+
+                } else {
+                    alert(`建立植物失敗：${result.error}`);
+                }
+            } catch (error) {
+                alert("建立植物失敗：網路或伺服器錯誤。");
+                console.error('Error:', error);
+            }
+        });
+
+        function copyCode() {
+            const pairingCode = document.getElementById('pairing-code').textContent;
+            navigator.clipboard.writeText(pairingCode).then(() => {
+                alert("配對碼已複製！");
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+            });
+        }
+    </script>
+</body>
+</html>

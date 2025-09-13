@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智慧植栽 - 首頁</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #FFF1E0;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            color: #333;
+            position: relative;
+            transition: all 0.5s ease;
+        }
+        .header {
+            width: 100%;
+            display: flex;
+            justify-content: flex-end;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.5s ease, visibility 0.5s ease;
+        }
+        .header .add-btn.small {
+            width: 50px;
+            height: 50px;
+            font-size: 30px;
+        }
+        .add-btn {
+            width: 150px;
+            height: 150px;
+            background-color: #8EBB81;
+            border-radius: 50%;
+            border: 5px solid #FFF1E0;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            font-size: 80px;
+            color: #FFF1E0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            text-decoration: none;
+            transition: transform 0.3s ease;
+        }
+        .add-btn:active {
+            transform: scale(0.95);
+        }
+        .plant-list {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 20px;
+            width: 100%;
+            max-width: 500px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.5s ease, visibility 0.5s ease;
+        }
+        .plant-card {
+            background-color: #8EBB81;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            color: #FFF1E0;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            position: relative;
+        }
+        .plant-card:active {
+            transform: scale(0.98);
+        }
+        .plant-card img {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-bottom: 10px;
+            border: 3px solid #FFF1E0;
+        }
+        /* 新增的選單樣式 */
+        .plant-options {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(142, 187, 129, 0.9);
+            border-radius: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease;
+        }
+        .plant-options.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        .plant-options button {
+            background-color: #FFF1E0;
+            color: #8EBB81;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: transform 0.2s ease;
+        }
+        .plant-options button:active {
+            transform: scale(0.95);
+        }
+        .plant-options .reset-btn {
+            background-color: #FF6B6B;
+            color: #FFF1E0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="/addPlant" class="add-btn small">+</a>
+    </div>
+
+    <div id="initial-add-btn" class="add-btn">+</div>
+
+    <div id="plant-list" class="plant-list">
+        {% for plant in plants %}
+        <div class="plant-card" data-id="{{ plant.id }}" data-mac="{{ plant.mac_address }}">
+            <img src="{{ plant.photo_path }}" alt="{{ plant.name }}">
+            <h3>{{ plant.name }}</h3>
+            <div class="plant-options" id="options-{{ plant.id }}">
+                <button onclick="viewPlant({{ plant.id }})">查看數據</button>
+                <button onclick="editPlant({{ plant.id }})">編輯</button>
+                <button class="reset-btn" onclick="remoteReset('{{ plant.mac_address }}')">遠端重設</button>
+                <button onclick="closeOptions({{ plant.id }})">取消</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const initialAddBtn = document.getElementById('initial-add-btn');
+            const header = document.querySelector('.header');
+            const plantList = document.getElementById('plant-list');
+            const plantCards = document.querySelectorAll('.plant-card');
+            
+            if (plantCards.length > 0) {
+                document.body.style.justifyContent = 'flex-start';
+                header.style.opacity = 1;
+                header.style.visibility = 'visible';
+                initialAddBtn.style.display = 'none';
+                plantList.style.opacity = 1;
+                plantList.style.visibility = 'visible';
+            } else {
+                initialAddBtn.addEventListener('click', function() {
+                    window.location.href = '/addPlant';
+                });
+            }
+
+            plantCards.forEach(card => {
+                card.addEventListener('click', function(event) {
+                    const plantId = this.dataset.id;
+                    const optionsMenu = document.getElementById(`options-${plantId}`);
+                    optionsMenu.classList.add('visible');
+                    event.stopPropagation();
+                });
+            });
+
+            document.body.addEventListener('click', function() {
+                document.querySelectorAll('.plant-options').forEach(menu => {
+                    menu.classList.remove('visible');
+                });
+            });
+        });
+
+        function viewPlant(plantId) {
+            window.location.href = `/history?id=${plantId}`;
+        }
+
+        function editPlant(plantId) {
+            window.location.href = `/editPlant?id=${plantId}`;
+        }
+
+        function closeOptions(plantId) {
+            const optionsMenu = document.getElementById(`options-${plantId}`);
+            optionsMenu.classList.remove('visible');
+        }
+
+        async function remoteReset(macAddress) {
+            if (confirm("您確定要遠端重設此裝置嗎？這將清除裝置的Wi-Fi設定並需要重新配對。")) {
+                try {
+                    const response = await fetch('/api/remote_reset', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mac_address: macAddress })
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        alert("遠端重設指令已成功傳送！裝置將在下次連線時重設。");
+                    } else {
+                        alert(`遠端重設失敗：${result.error}`);
+                    }
+                } catch (error) {
+                    alert("遠端重設失敗：網路或伺服器錯誤。");
+                    console.error('Error during remote reset:', error);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
