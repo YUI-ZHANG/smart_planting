@@ -6,6 +6,8 @@
     <title>智慧植栽 - 數據歷史</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
     <style>
         /* 統一的基礎樣式 */
         body {
@@ -130,7 +132,15 @@
             color: #FFF1E0;
         }
         
-
+        .data-block.active {
+            outline: 3px solid #FFF1E0;
+            background: #8EBB81;
+        }
+        
+        .data-block:active {
+            transform: scale(0.98);
+        }
+        
         .data-icon {
             font-size: 30px;
             flex-shrink: 0;
@@ -156,8 +166,10 @@
         /* 手動澆水與自動澆水設定區塊 */
         .water-block {
             background: #a9cc9e;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
             color: #FFF1E0;
-            margin-left: 100px;
             display: flex;
             flex-direction: column;
             gap: 10px;
@@ -168,10 +180,10 @@
             background: #FFF1E0;
             color: #8EBB81;
             font-weight: bold;
-            padding: 12px 0;
+            padding: 14px 0;
             border: none;
             border-radius: 10px;
-            font-size: 18px;
+            font-size: 20px;
             cursor: pointer;
             transition: transform 0.2s ease;
             display: flex;
@@ -264,10 +276,10 @@
     <div class="container">
         <h1>智慧植栽監測系統</h1>
         <div class="time-toggle">
-            <button onclick="setRange('day')">天</button>
-            <button class="active" onclick="setRange('week')">週</button>
-            <button onclick="setRange('month')">月</button>
-            <button onclick="setRange('year')">年</button>
+            <button onclick="setRange(event, 'day')">天</button>
+            <button class="active" onclick="setRange(event, 'week')">週</button>
+            <button onclick="setRange(event, 'month')">月</button>
+            <button onclick="setRange(event, 'year')">年</button>
         </div>
         <div id="chartContainer">
             <canvas id="myChart"></canvas>
@@ -279,13 +291,14 @@
         </div>
         <div class="data-grid-wrapper">
             <div class="data-grid">
-                <div class="data-block" onclick="showData('土壤濕度', this)">
+                <div class="data-block active" onclick="showData('土壤濕度', this)">
                     <div class="data-icon">🌱</div>
                     <div class="data-text">
                         <div class="label">土壤濕度</div>
                         <div class="value" id="val-soil">--%</div>
                     </div>
-                    <div class="water-block">
+                </div>
+                <div class="water-block">
                     <button onclick="manualWater()" class="water-now-button">
                         <span class="icon">💧</span>
                         <span>立即澆水</span>
@@ -298,10 +311,8 @@
                         <span style="margin-left: 10px;" class="value">低於</span>
                         <input type="number" id="autoThreshold" value="40" min="0" max="100" class="threshold-input" />
                         <span class="value">% 自動澆水</span>
-                        </div>
                     </div>
                 </div>
-                
                 <div class="data-block" onclick="showData('光照度', this)">
                     <div class="data-icon">☀️</div>
                     <div class="data-text">
@@ -327,307 +338,344 @@
             <div id="info-text">最新數據：--</div>
         </div>
     </div>
-<script>
-    Chart.register(window["chartjs-plugin-annotation"]);
+    <script>
+        Chart.register(window["chartjs-plugin-annotation"]);
+        let plantId = new URLSearchParams(window.location.search).get('id');
+        let latestGlobal = null;
+        let baseDate = new Date();
+        let userNavigated = false;
+        const API_URL = `/api/data/${plantId}`;
+        const LATEST_API_URL = `/api/data/${plantId}`;
+        let chartInstance = null;
+        let currentRange = "week";
+        let currentType = "土壤濕度";
+        const colors = {
+            "土壤濕度": "#8EBB81",
+            "光照度": "#f1c40f",
+            "環境溫度": "#ff6b6b",
+            "環境濕度": "#888888"
+        };
+        const unitMap = { "土壤濕度": "%", "光照度": " lux", "環境溫度": "°C", "環境濕度": "%" };
+        let autoWaterEnabled = false;
 
-    let plantId = new URLSearchParams(window.location.search).get('id');
-    let latestGlobal = null;
-    let baseDate = new Date();
-    let userNavigated = false;
-    const API_URL = `/api/data/${plantId}`;
-    const LATEST_API_URL = `/api/latest_data/${plantId}`;
-    let chartInstance = null;
-    let currentRange = "week";
-    let currentType = "土壤濕度";
-    const colors = {
-        "土壤濕度": "#8EBB81",
-        "光照度": "#f1c40f",
-        "環境溫度": "#ff6b6b",
-        "環境濕度": "#888888"
-    };
-    const unitMap = { "土壤濕度": "%", "光照度": " lux", "環境溫度": "°C", "環境濕度": "%" };
-
-    document.addEventListener("DOMContentLoaded", () => {
-        // 確保網頁載入時即時數據和圖表都能被正確載入
-        fetchLatestData();
-        fetchAndDrawChart();
-        setInterval(fetchLatestData, 30000); 
-
-        const checkbox = document.getElementById("autoWaterCheckbox");
-        const thresholdInput = document.getElementById("autoThreshold");
-        
-        checkbox.addEventListener("change", () => {
-            sendWaterSettings();
-            if (currentType === "土壤濕度") fetchAndDrawChart();
+        document.addEventListener("DOMContentLoaded", () => {
+            fetchAndDrawChart();
+            fetchLatestData();
+            setInterval(fetchLatestData, 30000); // 每 30 秒更新一次最新數據
+            
+            const checkbox = document.getElementById("autoWaterCheckbox");
+            const thresholdInput = document.getElementById("autoThreshold");
+            
+            checkbox.addEventListener("change", () => {
+                autoWaterEnabled = checkbox.checked;
+                sendWaterSettings();
+                if (currentType === "土壤濕度") fetchAndDrawChart();
+            });
+            
+            thresholdInput.addEventListener("input", () => {
+                if (checkbox.checked && currentType === "土壤濕度") fetchAndDrawChart();
+            });
         });
-        
-        thresholdInput.addEventListener("input", () => {
-            if (checkbox.checked && currentType === "土壤濕度") fetchAndDrawChart();
-        });
 
-        if (!plantId) {
-            console.error("URL 中缺少 plantId。請確保網址為 /history.html?id=您的ID");
-            document.getElementById('info-text').textContent = "錯誤：URL 中缺少植栽 ID。";
+        async function fetchLatestData() {
+    try {
+        const response = await fetch(API_URL);
+        if (!response.ok) throw new Error("Network response was not ok");
+        const data = await response.json();
+        if (data.data && data.data.length > 0) {
+            latestGlobal = data.data[0]; // 最後一筆
+            document.getElementById('val-soil').textContent = `${latestGlobal.土壤濕度}%`;
+            document.getElementById('val-light').textContent = `${latestGlobal.光照度} lux`;
+            document.getElementById('val-temp').textContent = `${latestGlobal.環境溫度}°C`;
+            document.getElementById('val-humid').textContent = `${latestGlobal.環境濕度}%`;
+            document.getElementById('info-text').textContent = `最新數據：${latestGlobal.時間}`;
         }
-    });
-
-    // 獲取並顯示最新數據的函式
-    async function fetchLatestData() {
-        try {
-            const plantId = getPlantIdFromUrl();
-            if (!plantId) {
-                console.error("找不到植物ID，無法獲取即時數據。");
-                return;
-            }
-
-            const response = await fetch(`/api/latest_data/${plantId}`);
-            const result = await response.json();
-
-            if (response.ok && result.success && result.data) {
-                document.getElementById('val-soil').textContent = `${result.data['土壤濕度']}%`;
-                document.getElementById('val-light').textContent = `${result.data['光照度']} lux`;
-                document.getElementById('val-temp').textContent = `${result.data['環境溫度']}°C`;
-                // 修正了 ID，從 val-humi 改為 val-humid
-                document.getElementById('val-humid').textContent = `${result.data['環境濕度']}%`;
-            } else {
-                console.error("API回傳錯誤或數據格式不正確：", result.error || "未知錯誤");
-            }
-
-        } catch (error) {
-            console.error("獲取即時數據時發生錯誤：", error);
-        }
+    } catch (error) {
+        console.error("Failed to fetch latest data:", error);
     }
+}
 
-    // 獲取並繪製圖表的函式
-    async function fetchAndDrawChart() {
-        try {
+        async function manualWater() {
+            try {
+                const response = await fetch('/api/water_now', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ plant_id: plantId })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    alert('手動澆水指令已傳送！');
+                } else {
+                    alert(`手動澆水失敗：${result.error}`);
+                }
+            } catch (error) {
+                alert('手動澆水失敗：網路或伺服器錯誤。');
+                console.error('Error during manual watering:', error);
+            }
+        }
+
+        async function sendWaterSettings() {
+            const threshold = document.getElementById('autoThreshold').value;
+            const enabled = document.getElementById('autoWaterCheckbox').checked;
+            try {
+                const response = await fetch('/api/update_water_settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        plant_id: plantId,
+                        enabled: enabled,
+                        threshold: threshold 
+                    })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    console.log('自動澆水設定已儲存。');
+                } else {
+                    console.error('自動澆水設定儲存失敗：', result.error);
+                }
+            } catch (error) {
+                console.error('儲存自動澆水設定時發生錯誤：', error);
+            }
+        }
+
+        function getWeekdayName(date) {
+            const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+            return `（${weekdays[date.getDay()]}）`;
+        }
+        function updateRangeLabel() {
+            const y = baseDate.getFullYear();
+            const m = baseDate.getMonth() + 1;
+            const d = baseDate.getDate();
+            let label = "";
+            if (currentRange === "day") {
+                label = `${y}/${m}/${d}${getWeekdayName(baseDate)}`;
+            } else if (currentRange === "week") {
+                const dow = baseDate.getDay();
+                const monday = new Date(baseDate);
+                monday.setDate(baseDate.getDate() - ((dow + 6) % 7));
+                const sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                label = `${monday.getFullYear()}/${monday.getMonth() + 1}/${monday.getDate()}${getWeekdayName(monday)} ~ ${sunday.getFullYear()}/${sunday.getMonth() + 1}/${sunday.getDate()}${getWeekdayName(sunday)}`;
+            } else if (currentRange === "month") {
+                label = `${y}年${m}月`;
+            } else if (currentRange === "year") {
+                label = `${y}年`;
+            }
+            document.getElementById("rangeLabel").textContent = label;
+        }
+        function navigateRange(direction) {
+            userNavigated = true;
+            if (currentRange === "week") {
+                baseDate.setDate(baseDate.getDate() + 7 * direction);
+            } else if (currentRange === "day") {
+                baseDate.setDate(baseDate.getDate() + 1 * direction);
+            } else if (currentRange === "month") {
+                baseDate.setMonth(baseDate.getMonth() + direction);
+            } else if (currentRange === "year") {
+                baseDate.setFullYear(baseDate.getFullYear() + direction);
+            }
             updateRangeLabel();
-            const start = baseDate.toISOString();
-            const response = await fetch(`/api/data/${plantId}?period=${currentRange}&start=${start}`);
-            const data = await response.json();
+            fetchAndDrawChart();
+        }
+        function setRange(event, r) {
+            currentRange = r;
+            document.querySelectorAll(".time-toggle button").forEach((b) => b.classList.remove("active"));
+            event.target.classList.add("active");
+            updateRangeLabel();
+            fetchAndDrawChart();
+}
 
-            // 檢查數據是否為空
-            if (!data || data.length === 0) {
-                if (chartInstance) {
-                    chartInstance.destroy(); // 銷毀舊圖表
+        function showData(type, el) {
+            currentType = type;
+            document.querySelectorAll(".data-block").forEach((b) => b.classList.remove("active"));
+            el.classList.add("active");
+            fetchAndDrawChart();
+        }
+        function getDaysInMonth(year, month) {
+            return new Date(year, month, 0).getDate();
+        }
+        function generateLabels(range, latestDate) {
+            if (range === "day") {
+                const labels = [];
+                for (let h = 0; h <= 23; h++) {
+                    labels.push(`${String(h).padStart(2, "0")}:00`);
                 }
-                document.getElementById('chartContainer').style.display = 'none';
-                document.getElementById('info-text').textContent = '該時間範圍內沒有數據。';
-                return;
+                return labels;
             }
-
-            document.getElementById('chartContainer').style.display = 'block';
-            document.getElementById('info-text').textContent = '';
-
-            const chartData = data.map(d => ({
-                x: d['時間'],
-                y: d[currentType]
-            }));
-
-            const ctx = document.getElementById('myChart').getContext('2d');
-            if (chartInstance) {
-                chartInstance.destroy(); // 銷毀舊圖表
+            if (range === "week") {
+                return ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
             }
-
-            const annotations = [];
-            // 只在顯示土壤濕度且自動澆水開啟時，才顯示臨界線
-            if (currentType === '土壤濕度' && document.getElementById('autoWaterCheckbox').checked) {
-                const threshold = parseFloat(document.getElementById('autoThreshold').value);
-                if (!isNaN(threshold)) {
-                    annotations.push({
-                        type: 'line',
-                        scaleID: 'y',
-                        value: threshold,
-                        borderColor: 'rgb(255, 99, 132)',
-                        borderWidth: 2,
+            if (range === "month") {
+                const year = latestDate.getFullYear();
+                const month = latestDate.getMonth() + 1;
+                const td = getDaysInMonth(year, month);
+                const lbl = [];
+                for (let d = 1; d <= td; d++) {
+                    lbl.push(`${d}日`);
+                }
+                return lbl;
+            }
+            if (range === "year") {
+                return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+            }
+        }
+        function fetchAndDrawChart() {
+            let threshold = null;
+            if (currentType === "土壤濕度") {
+                const checkbox = document.getElementById("autoWaterCheckbox");
+                const thresholdInput = document.getElementById("autoThreshold");
+                if (checkbox?.checked) {
+                    let val = Number(thresholdInput.value);
+                    if (val > 100) val = 100;
+                    if (val < 0) val = 0;
+                    threshold = val;
+                    thresholdInput.value = val;
+                }
+            }
+            const ann = threshold !== null ? {
+                annotations: {
+                    thrLine: {
+                        type: "line",
+                        yMin: threshold,
+                        yMax: threshold,
+                        borderColor: "#FFF1E0",
+                        borderDash: [6, 6],
+                        borderWidth: 3,
                         label: {
-                            content: '自動澆水臨界值',
                             enabled: true,
-                            position: 'start'
-                        }
-                    });
-                }
-            }
-
-            chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    datasets: [{
-                        label: currentType,
-                        data: chartData,
-                        borderColor: colors[currentType],
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                unit: 'day',
-                                tooltipFormat: 'yyyy/MM/dd HH:mm',
-                                displayFormats: {
-                                    day: 'MM/dd'
-                                }
-                            },
-                            title: {
-                                display: true,
-                                text: '時間',
-                            }
-                        },
-                        y: {
-                            title: {
-                                display: true,
-                                text: `${currentType} ${unitMap[currentType]}`
-                            },
-                            beginAtZero: true
-                        }
-                    },
-                    plugins: {
-                        annotation: {
-                            annotations: annotations
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    let label = context.dataset.label || '';
-                                    if (label) {
-                                        label += ': ';
-                                    }
-                                    if (context.parsed.y !== null) {
-                                        label += context.parsed.y + unitMap[currentType];
-                                    }
-                                    return label;
-                                }
-                            }
+                            content: `閾值 ${threshold}%`,
+                            position: "start",
+                            backgroundColor: "rgba(255, 241, 224, 0.7)",
+                            color: "#8EBB81"
                         }
                     }
                 }
-            });
-        } catch (error) {
-            console.error("繪製圖表時發生錯誤：", error);
-        }
-    }
-
-
-    // 處理手動澆水
-    async function manualWater() {
-        if (!plantId) {
-            alert('錯誤：URL 中缺少植栽 ID。');
-            return;
-        }
-        try {
-            const response = await fetch('/api/water_now', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ plant_id: plantId })
-            });
-            const result = await response.json();
-            if (response.ok) {
-                alert('手動澆水指令已傳送！');
-            } else {
-                alert(`手動澆水失敗：${result.error}`);
+            } : {};
+            const startDate = new Date(baseDate);
+            const endDate = new Date(baseDate);
+            let timeUnit = 'day';
+            
+            if (currentRange === "day") {
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setHours(23, 59, 59, 999);
+                timeUnit = 'hour';
+            } else if (currentRange === "week") {
+                const dow = startDate.getDay();
+                startDate.setDate(startDate.getDate() - ((dow + 6) % 7));
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setDate(startDate.getDate() + 6);
+                endDate.setHours(23, 59, 59, 999);
+                timeUnit = 'day';
+            } else if (currentRange === "month") {
+                startDate.setDate(1);
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setMonth(endDate.getMonth() + 1);
+                endDate.setDate(0);
+                endDate.setHours(23, 59, 59, 999);
+                timeUnit = 'day';
+            } else if (currentRange === "year") {
+                startDate.setMonth(0, 1);
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setMonth(11, 31);
+                endDate.setHours(23, 59, 59, 999);
+                timeUnit = 'month';
             }
-        } catch (error) {
-            alert('手動澆水失敗：網路或伺服器錯誤。');
-            console.error('Error during manual watering:', error);
-        }
-    }
-
-    // 處理自動澆水設定
-    async function sendWaterSettings() {
-        if (!plantId) return;
-        const threshold = document.getElementById('autoThreshold').value;
-        const enabled = document.getElementById('autoWaterCheckbox').checked;
-        try {
-            const response = await fetch('/api/update_water_settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    plant_id: plantId,
-                    enabled: enabled,
-                    threshold: threshold 
+            
+            updateRangeLabel();
+            
+            const params = new URLSearchParams({
+                start: startDate.toISOString(),
+                end: endDate.toISOString(),
+                type: currentType
+            });
+            
+            fetch(`${API_URL}?${params.toString()}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log("API 回傳資料:", data);
+                    if (!data.data || data.data.length === 0) {
+                        console.warn("沒有資料可畫圖");
+                        return;
+                    }
+                    const chartData = data.data.map(item => ({
+                        x: new Date(item.時間),
+                        y: item[currentType]
+                    }));
+                    
+                    if (chartInstance) {
+                        chartInstance.destroy();
+                    }
+                    
+                    const ctx = document.getElementById("myChart").getContext("2d");
+                    chartInstance = new Chart(ctx, {
+                        type: "line",
+                        data: {
+                            datasets: [{
+                                label: currentType,
+                                data: chartData,
+                                borderColor: colors[currentType],
+                                backgroundColor: "rgba(0,0,0,0)",
+                                borderWidth: 3,
+                                pointRadius: 5,
+                                pointBackgroundColor: colors[currentType],
+                                tension: 0.4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: timeUnit,
+                                        displayFormats: {
+                                            'day': 'MM/dd',
+                                            'hour': 'HH:mm',
+                                            'month': 'MM月'
+                                        },
+                                        tooltipFormat: 'yyyy-MM-dd HH:mm',
+                                        unit: timeUnit
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: '時間'
+                                    }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: currentType + unitMap[currentType]
+                                    },
+                                    min: 0,
+                                    max: currentType === "土壤濕度" || currentType === "環境濕度" ? 100 : undefined
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            let label = context.dataset.label || '';
+                                            if (label) {
+                                                label += ': ';
+                                            }
+                                            if (context.parsed.y !== null) {
+                                                label += context.parsed.y + unitMap[currentType];
+                                            }
+                                            return label;
+                                        }
+                                    }
+                                },
+                                annotation: ann
+                            }
+                        }
+                    });
                 })
-            });
-            const result = await response.json();
-            if (response.ok) {
-                console.log('自動澆水設定已儲存。');
-            } else {
-                console.error('自動澆水設定儲存失敗：', result.error);
-            }
-        } catch (error) {
-            console.error('儲存自動澆水設定時發生錯誤：', error);
+                .catch(error => console.error("Error fetching data:", error));
         }
-    }
-
-    // 從 URL 獲取植物 ID
-    function getPlantIdFromUrl() {
-        return new URLSearchParams(window.location.search).get('id');
-    }
-
-    // 更新時間標籤
-    function updateRangeLabel() {
-        const y = baseDate.getFullYear();
-        const m = baseDate.getMonth() + 1;
-        const d = baseDate.getDate();
-        let label = "";
-        if (currentRange === "day") {
-            label = `${y}/${m}/${d}${getWeekdayName(baseDate)}`;
-        } else if (currentRange === "week") {
-            const dow = baseDate.getDay();
-            const monday = new Date(baseDate);
-            monday.setDate(baseDate.getDate() - ((dow + 6) % 7));
-            const sunday = new Date(monday);
-            sunday.setDate(monday.getDate() + 6);
-            label = `${monday.getFullYear()}/${monday.getMonth() + 1}/${monday.getDate()}${getWeekdayName(monday)} ~ ${sunday.getFullYear()}/${sunday.getMonth() + 1}/${sunday.getDate()}${getWeekdayName(sunday)}`;
-        } else if (currentRange === "month") {
-            label = `${y}年${m}月`;
-        } else if (currentRange === "year") {
-            label = `${y}年`;
-        }
-        document.getElementById("rangeLabel").textContent = label;
-    }
-
-    // 導航時間範圍
-    function navigateRange(direction) {
-        userNavigated = true;
-        if (currentRange === "week") {
-            baseDate.setDate(baseDate.getDate() + 7 * direction);
-        } else if (currentRange === "day") {
-            baseDate.setDate(baseDate.getDate() + 1 * direction);
-        } else if (currentRange === "month") {
-            baseDate.setMonth(baseDate.getMonth() + direction);
-        } else if (currentRange === "year") {
-            baseDate.setFullYear(baseDate.getFullYear() + direction);
-        }
-        updateRangeLabel();
-        fetchAndDrawChart();
-    }
-
-    // 設定時間範圍
-    function setRange(r) {
-        currentRange = r;
-        document.querySelectorAll(".time-toggle button").forEach((b) => b.classList.remove("active"));
-        event.target.classList.add("active");
-        fetchAndDrawChart();
-    }
-    
-    // 顯示不同數據圖表
-    function showData(type, el) {
-        currentType = type;
-        document.querySelectorAll(".data-block").forEach((b) => b.classList.remove("active"));
-        el.classList.add("active");
-        fetchAndDrawChart();
-    }
-
-    function getWeekdayName(date) {
-        const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
-        return `（${weekdays[date.getDay()]}）`;
-    }
-</script>
+    </script>
 </body>
 </html>
