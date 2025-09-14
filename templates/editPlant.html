@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>新增植物</title>
+    <title>更改植物資訊</title>
     <style>
         body {
             font-family: sans-serif;
@@ -116,7 +116,7 @@
 <body>
     <div class="modal-container">
         <div id="add-form-section">
-            <h2>新增植物</h2>
+            <h2>編輯植物</h2>
             <form id="add-plant-form" action="/create_plant" method="POST" enctype="multipart/form-data">
                 <div class="form-group">
                     <label for="plant-name">植物名稱</label>
@@ -128,23 +128,11 @@
                 </div>
                 <div class="buttons">
                     <button type="button" class="btn btn-secondary" onclick="window.history.back()">取消</button>
-                    <button type="submit" class="btn btn-primary">建立</button>
+                    <button type="submit" class="btn btn-primary">編輯</button>
                 </div>
             </form>
         </div>
 
-        <div id="pairing-section" class="pairing-section">
-            <h2>配對裝置</h2>
-            <p>請將裝置連上Wi-Fi，並在配對頁面輸入以下配對碼：</p>
-            <div class="pairing-code" id="pairing-code"></div>
-            <button class="copy-btn" onclick="copyCode()">複製配對碼</button>
-            <p>或用手機掃描以下QR Code，直接進入Wi-Fi設定模式：</p>
-            <div id="qrcode"></div>
-            <p style="font-size:14px; text-align: left;">1. 裝置首次啟動會廣播 Wi-Fi 熱點。<br>2. 手機連線到名為「Plant-Setup」的 Wi-Fi 熱點。<br>3. 瀏覽器會自動跳出設定頁面，請輸入您的家用 Wi-Fi 資訊及上方配對碼。<br>4. 設定完成後，裝置會自動連線並開始運作。</p>
-            <div class="buttons">
-                <button type="button" class="btn btn-primary" onclick="window.location.href='/'">完成</button>
-            </div>
-        </div>
     </div>
     
     <script>
@@ -177,10 +165,10 @@
                     });
 
                 } else {
-                    alert(`建立植物失敗：${result.error}`);
+                    alert(`編輯植物失敗：${result.error}`);
                 }
             } catch (error) {
-                alert("建立植物失敗：網路或伺服器錯誤。");
+                alert("編輯植物失敗：網路或伺服器錯誤。");
                 console.error('Error:', error);
             }
         });

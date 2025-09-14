@@ -345,7 +345,6 @@
         let baseDate = new Date();
         let userNavigated = false;
         const API_URL = `/api/data/${plantId}`;
-        const LATEST_API_URL = `/api/data/${plantId}`;
         let chartInstance = null;
         let currentRange = "week";
         let currentType = "土壤濕度";
@@ -378,22 +377,22 @@
         });
 
         async function fetchLatestData() {
-    try {
-        const response = await fetch(API_URL);
-        if (!response.ok) throw new Error("Network response was not ok");
-        const data = await response.json();
-        if (data.data && data.data.length > 0) {
-            latestGlobal = data.data[0]; // 最後一筆
-            document.getElementById('val-soil').textContent = `${latestGlobal.土壤濕度}%`;
-            document.getElementById('val-light').textContent = `${latestGlobal.光照度} lux`;
-            document.getElementById('val-temp').textContent = `${latestGlobal.環境溫度}°C`;
-            document.getElementById('val-humid').textContent = `${latestGlobal.環境濕度}%`;
-            document.getElementById('info-text').textContent = `最新數據：${latestGlobal.時間}`;
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) throw new Error("Network response was not ok");
+                const data = await response.json();
+                if (data.data && data.data.length > 0) {
+                    latestGlobal = data.data[0];
+                    document.getElementById('val-soil').textContent = `${latestGlobal.土壤濕度}%`;
+                    document.getElementById('val-light').textContent = `${latestGlobal.光照度} lux`;
+                    document.getElementById('val-temp').textContent = `${latestGlobal.環境溫度}°C`;
+                    document.getElementById('val-humid').textContent = `${latestGlobal.環境濕度}%`;
+                    document.getElementById('info-text').textContent = `最新數據：${latestGlobal.時間}`;
+                }
+            } catch (error) {
+                console.error("Failed to fetch latest data:", error);
+            }
         }
-    } catch (error) {
-        console.error("Failed to fetch latest data:", error);
-    }
-}
 
         async function manualWater() {
             try {
@@ -442,6 +441,7 @@
             const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
             return `（${weekdays[date.getDay()]}）`;
         }
+
         function updateRangeLabel() {
             const y = baseDate.getFullYear();
             const m = baseDate.getMonth() + 1;
@@ -463,12 +463,13 @@
             }
             document.getElementById("rangeLabel").textContent = label;
         }
+
         function navigateRange(direction) {
             userNavigated = true;
-            if (currentRange === "week") {
-                baseDate.setDate(baseDate.getDate() + 7 * direction);
-            } else if (currentRange === "day") {
+            if (currentRange === "day") {
                 baseDate.setDate(baseDate.getDate() + 1 * direction);
+            } else if (currentRange === "week") {
+                baseDate.setDate(baseDate.getDate() + 7 * direction);
             } else if (currentRange === "month") {
                 baseDate.setMonth(baseDate.getMonth() + direction);
             } else if (currentRange === "year") {
@@ -477,13 +478,15 @@
             updateRangeLabel();
             fetchAndDrawChart();
         }
+
         function setRange(event, r) {
             currentRange = r;
             document.querySelectorAll(".time-toggle button").forEach((b) => b.classList.remove("active"));
             event.target.classList.add("active");
+            baseDate = new Date(); // 重設為當前日期，以從最近的數據開始
             updateRangeLabel();
             fetchAndDrawChart();
-}
+        }
 
         function showData(type, el) {
             currentType = type;
@@ -491,35 +494,80 @@
             el.classList.add("active");
             fetchAndDrawChart();
         }
-        function getDaysInMonth(year, month) {
-            return new Date(year, month, 0).getDate();
-        }
-        function generateLabels(range, latestDate) {
-            if (range === "day") {
-                const labels = [];
-                for (let h = 0; h <= 23; h++) {
-                    labels.push(`${String(h).padStart(2, "0")}:00`);
+
+        // 新增的資料處理函式
+        function processDataForChart(rawData, type, range) {
+            const processedData = {};
+            const today = new Date();
+            
+            rawData.forEach(item => {
+                const itemDate = new Date(item.時間);
+                let key;
+
+                if (range === 'day') {
+                    key = itemDate.getHours();
+                } else if (range === 'week' || range === 'month') {
+                    key = itemDate.getDate();
+                } else if (range === 'year') {
+                    key = itemDate.getMonth() + 1;
                 }
-                return labels;
-            }
-            if (range === "week") {
-                return ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
-            }
-            if (range === "month") {
-                const year = latestDate.getFullYear();
-                const month = latestDate.getMonth() + 1;
-                const td = getDaysInMonth(year, month);
-                const lbl = [];
-                for (let d = 1; d <= td; d++) {
-                    lbl.push(`${d}日`);
+
+                if (!processedData[key]) {
+                    processedData[key] = { sum: 0, count: 0 };
                 }
-                return lbl;
+                processedData[key].sum += item[type];
+                processedData[key].count++;
+            });
+
+            const labels = [];
+            const values = [];
+
+            let loopStart, loopEnd;
+
+            if (range === 'day') {
+                loopStart = 0;
+                loopEnd = 23;
+                for (let i = loopStart; i <= loopEnd; i++) {
+                    labels.push(`${String(i).padStart(2, "0")}:00`);
+                    const avg = processedData[i] ? processedData[i].sum / processedData[i].count : null;
+                    values.push(avg);
+                }
+            } else if (range === 'week') {
+                loopStart = 0;
+                loopEnd = 6;
+                const startOfWeek = new Date(baseDate);
+                startOfWeek.setDate(baseDate.getDate() - ((baseDate.getDay() + 6) % 7)); // 調整為本週一
+                for (let i = loopStart; i <= loopEnd; i++) {
+                    const date = new Date(startOfWeek);
+                    date.setDate(startOfWeek.getDate() + i);
+                    labels.push(`週${getWeekdayName(date).replace('（', '').replace('）', '')}`);
+                    const dayKey = date.getDate();
+                    const avg = processedData[dayKey] ? processedData[dayKey].sum / processedData[dayKey].count : null;
+                    values.push(avg);
+                }
+            } else if (range === 'month') {
+                const daysInMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0).getDate();
+                loopStart = 1;
+                loopEnd = daysInMonth;
+                for (let i = loopStart; i <= loopEnd; i++) {
+                    labels.push(`${i}日`);
+                    const avg = processedData[i] ? processedData[i].sum / processedData[i].count : null;
+                    values.push(avg);
+                }
+            } else if (range === 'year') {
+                loopStart = 1;
+                loopEnd = 12;
+                for (let i = loopStart; i <= loopEnd; i++) {
+                    labels.push(`${i}月`);
+                    const avg = processedData[i] ? processedData[i].sum / processedData[i].count : null;
+                    values.push(avg);
+                }
             }
-            if (range === "year") {
-                return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-            }
+
+            return { labels, values };
         }
-        function fetchAndDrawChart() {
+
+        async function fetchAndDrawChart() {
             let threshold = null;
             if (currentType === "土壤濕度") {
                 const checkbox = document.getElementById("autoWaterCheckbox");
@@ -551,34 +599,30 @@
                     }
                 }
             } : {};
+            
             const startDate = new Date(baseDate);
             const endDate = new Date(baseDate);
-            let timeUnit = 'day';
             
             if (currentRange === "day") {
                 startDate.setHours(0, 0, 0, 0);
                 endDate.setHours(23, 59, 59, 999);
-                timeUnit = 'hour';
             } else if (currentRange === "week") {
                 const dow = startDate.getDay();
                 startDate.setDate(startDate.getDate() - ((dow + 6) % 7));
                 startDate.setHours(0, 0, 0, 0);
                 endDate.setDate(startDate.getDate() + 6);
                 endDate.setHours(23, 59, 59, 999);
-                timeUnit = 'day';
             } else if (currentRange === "month") {
                 startDate.setDate(1);
                 startDate.setHours(0, 0, 0, 0);
                 endDate.setMonth(endDate.getMonth() + 1);
                 endDate.setDate(0);
                 endDate.setHours(23, 59, 59, 999);
-                timeUnit = 'day';
             } else if (currentRange === "year") {
                 startDate.setMonth(0, 1);
                 startDate.setHours(0, 0, 0, 0);
                 endDate.setMonth(11, 31);
                 endDate.setHours(23, 59, 59, 999);
-                timeUnit = 'month';
             }
             
             updateRangeLabel();
@@ -589,92 +633,92 @@
                 type: currentType
             });
             
-            fetch(`${API_URL}?${params.toString()}`)
-                .then(response => response.json())
-                .then(data => {
-                    console.log("API 回傳資料:", data);
-                    if (!data.data || data.data.length === 0) {
-                        console.warn("沒有資料可畫圖");
-                        return;
-                    }
-                    const chartData = data.data.map(item => ({
-                        x: new Date(item.時間),
-                        y: item[currentType]
-                    }));
-                    
-                    if (chartInstance) {
-                        chartInstance.destroy();
-                    }
-                    
+            try {
+                const response = await fetch(`${API_URL}?${params.toString()}`);
+                if (!response.ok) throw new Error("Network response was not ok");
+                const data = await response.json();
+                
+                if (!data.data || data.data.length === 0) {
+                    console.warn("沒有資料可畫圖");
+                    if (chartInstance) chartInstance.destroy();
                     const ctx = document.getElementById("myChart").getContext("2d");
-                    chartInstance = new Chart(ctx, {
-                        type: "line",
-                        data: {
-                            datasets: [{
-                                label: currentType,
-                                data: chartData,
-                                borderColor: colors[currentType],
-                                backgroundColor: "rgba(0,0,0,0)",
-                                borderWidth: 3,
-                                pointRadius: 5,
-                                pointBackgroundColor: colors[currentType],
-                                tension: 0.4
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                x: {
-                                    type: 'time',
-                                    time: {
-                                        unit: timeUnit,
-                                        displayFormats: {
-                                            'day': 'MM/dd',
-                                            'hour': 'HH:mm',
-                                            'month': 'MM月'
-                                        },
-                                        tooltipFormat: 'yyyy-MM-dd HH:mm',
-                                        unit: timeUnit
-                                    },
-                                    title: {
-                                        display: true,
-                                        text: '時間'
-                                    }
+                    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                    return;
+                }
+
+                const { labels, values } = processDataForChart(data.data, currentType, currentRange);
+
+                if (chartInstance) {
+                    chartInstance.destroy();
+                }
+                
+                const ctx = document.getElementById("myChart").getContext("2d");
+                chartInstance = new Chart(ctx, {
+                    type: "line",
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: currentType,
+                            data: values,
+                            borderColor: colors[currentType],
+                            backgroundColor: "rgba(0,0,0,0)",
+                            borderWidth: 3,
+                            pointRadius: 5,
+                            pointBackgroundColor: colors[currentType],
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                ticks: {
+                                    color: "#8EBB81",
+                                    font: { size: 14 }
                                 },
-                                y: {
-                                    title: {
-                                        display: true,
-                                        text: currentType + unitMap[currentType]
-                                    },
-                                    min: 0,
-                                    max: currentType === "土壤濕度" || currentType === "環境濕度" ? 100 : undefined
+                                grid: { color: "rgba(142, 187, 129, 0.2)" }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    color: "#8EBB81",
+                                    font: { size: 14 },
+                                    callback: (value) => value + unitMap[currentType]
+                                },
+                                grid: { color: "rgba(142, 187, 129, 0.2)" },
+                                max: currentType === "土壤濕度" || currentType === "環境濕度" ? 100 : undefined
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: {
+                                    color: "#8EBB81",
+                                    font: { size: 16 }
                                 }
                             },
-                            plugins: {
-                                legend: {
-                                    display: false
-                                },
-                                tooltip: {
-                                    callbacks: {
-                                        label: function(context) {
-                                            let label = context.dataset.label || '';
-                                            if (label) {
-                                                label += ': ';
-                                            }
-                                            if (context.parsed.y !== null) {
-                                                label += context.parsed.y + unitMap[currentType];
-                                            }
-                                            return label;
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) {
+                                            label += ': ';
                                         }
+                                        if (context.parsed.y !== null) {
+                                            label += context.parsed.y.toFixed(2) + unitMap[currentType];
+                                        }
+                                        return label;
                                     }
-                                },
-                                annotation: ann
-                            }
+                                }
+                            },
+                            ...ann
                         }
-                    });
-                })
-                .catch(error => console.error("Error fetching data:", error));
+                    }
+                });
+            } catch (error) {
+                console.error("抓取或繪製圖表時發生錯誤：", error);
+                if (chartInstance) chartInstance.destroy();
+            }
         }
     </script>
 </body>

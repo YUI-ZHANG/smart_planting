@@ -20,7 +20,7 @@ class PlantModel:
     def __init__(self, db_url='sqlite:///plant_data.db', gs_keyfile='smart-planting-468806-f5b899621000.json', fixed_sheet_id='1NoqaDFRS137ov8gOsbmlixzWhhwGj5EdfANvjotlv28'):
         logging.basicConfig(level=logging.DEBUG)
         self.engine = create_engine(db_url)
-        self.fixed_sheet_id = fixed_sheet_id
+        self.fixed_sheet_id = fixed_sheet_id.strip() 
 
         # Google Sheets 設定
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -89,29 +89,35 @@ class PlantModel:
         # PlantModel 內修改 get_plant_data
     def get_plant_data(self, sheet_id, worksheet_name, period='day'):
         try:
-            # 一次拿到整個試算表的所有值
+            # 讀取 Google Sheets 資料
             sheet = self.client.open_by_key(sheet_id)
-            all_values = sheet.values_get(f"{worksheet_name}!A:Z") 
-            
-            # 將資料轉成 DataFrame
+            all_values = sheet.values_get(f"{worksheet_name}!A:Z")
             values = all_values.get('values', [])
             if not values or len(values) < 2:
                 return []
 
-            headers = values[0]
+            # 清理標題
+            headers = [h.strip() for h in values[0]]
             rows = values[1:]
             df = pd.DataFrame(rows, columns=headers)
-            df['時間'] = pd.to_datetime(df['時間'], errors='coerce')
 
-            now = datetime.now()
-            start_date = now - timedelta(days={'day':1,'week':7,'month':30,'year':365}.get(period,1))
-            filtered = df[df['時間'] >= start_date]
+            if "時間" not in df.columns:
+                logging.error(f"找不到 '時間' 欄位，實際欄位有: {df.columns}")
+                return []
+            
+            df["時間"] = pd.to_datetime(df["時間"], format="%Y/%m/%d-%H:%M:%S", errors="coerce")
 
-            return filtered.to_dict(orient='records')
+            if df["時間"].isna().all():
+                logging.warning("所有時間解析失敗，範例: %s", df["時間"].head())
+                return []
 
-        except gspread.exceptions.APIError as e:
-            logging.error(f"Google Sheets API 錯誤: {e}")
-            return []
+            filtered = df
+            if filtered.empty:
+                logging.info("過濾後無資料，可能時間都比 start_date 早")
+                return []
+
+            return filtered.to_dict(orient="records")
+
         except Exception as e:
             logging.error(f"取得植物資料錯誤: {e}")
             return []
@@ -136,9 +142,9 @@ class PlantController:
             plants = self.model.get_all_plants()
             return render_template('index.html', plants=plants)
 
-        @self.app.route('/addPlant')
-        def add_plant():
-            return render_template('addPlant.html')
+        @self.app.route('/editPlant')
+        def edit_plant():
+            return render_template('editPlant.html')
         
         @self.app.route('/history')
         def history():
