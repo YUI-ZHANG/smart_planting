@@ -7,7 +7,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
     <style>
         /* 統一的基礎樣式 */
         body {
@@ -354,7 +353,7 @@
             "環境溫度": "#ff6b6b",
             "環境濕度": "#888888"
         };
-        const unitMap = { "土壤濕度": "%", "光照度": " lux", "環境溫度": "°C", "環境濕度": "%" };
+        const unitMap = { "土壤濕度": "%", "光照度": "%", "環境溫度": "°C", "環境濕度": "%" };
         let autoWaterEnabled = false;
 
         document.addEventListener("DOMContentLoaded", () => {
@@ -384,7 +383,7 @@
                 if (data.data && data.data.length > 0) {
                     latestGlobal = data.data[0];
                     document.getElementById('val-soil').textContent = `${latestGlobal.土壤濕度}%`;
-                    document.getElementById('val-light').textContent = `${latestGlobal.光照度} lux`;
+                    document.getElementById('val-light').textContent = `${latestGlobal.光照度} %`;
                     document.getElementById('val-temp').textContent = `${latestGlobal.環境溫度}°C`;
                     document.getElementById('val-humid').textContent = `${latestGlobal.環境濕度}%`;
                     document.getElementById('info-text').textContent = `最新數據：${latestGlobal.時間}`;
@@ -497,76 +496,94 @@
 
         // 新增的資料處理函式
         function processDataForChart(rawData, type, range) {
+            if (!rawData || rawData.length === 0) {
+                return { labels: [], values: [] };
+            }
+
             const processedData = {};
-            const today = new Date();
-            
-            rawData.forEach(item => {
-                const itemDate = new Date(item.時間);
-                let key;
-
-                if (range === 'day') {
-                    key = itemDate.getHours();
-                } else if (range === 'week' || range === 'month') {
-                    key = itemDate.getDate();
-                } else if (range === 'year') {
-                    key = itemDate.getMonth() + 1;
-                }
-
-                if (!processedData[key]) {
-                    processedData[key] = { sum: 0, count: 0 };
-                }
-                processedData[key].sum += item[type];
-                processedData[key].count++;
-            });
-
             const labels = [];
             const values = [];
 
-            let loopStart, loopEnd;
-
+            // 統一處理邏輯，確保每個時間區間的數據都能正確對應到索引
             if (range === 'day') {
-                loopStart = 0;
-                loopEnd = 23;
-                for (let i = loopStart; i <= loopEnd; i++) {
+                for (let i = 0; i <= 23; i++) {
+                    processedData[i] = { sum: 0, count: 0 };
+                }
+                rawData.forEach(item => {
+                    const itemDate = new Date(item.時間);
+                    const hour = itemDate.getHours();
+                    const value = parseFloat(item[type]);
+                    if (!isNaN(value)) {
+                        processedData[hour].sum += value;
+                        processedData[hour].count++;
+                    }
+                });
+                for (let i = 0; i <= 23; i++) {
                     labels.push(`${String(i).padStart(2, "0")}:00`);
-                    const avg = processedData[i] ? processedData[i].sum / processedData[i].count : null;
-                    values.push(avg);
+                    values.push(processedData[i].count > 0 ? processedData[i].sum / processedData[i].count : null);
                 }
             } else if (range === 'week') {
-                loopStart = 0;
-                loopEnd = 6;
+                // 修正：使用星期幾 (0-6) 作為索引，並預先初始化
+                for (let i = 0; i <= 6; i++) {
+                    processedData[i] = { sum: 0, count: 0 };
+                }
+                rawData.forEach(item => {
+                    const itemDate = new Date(item.時間);
+                    // 使用 getDay() 取得星期幾，並調整為週一為 0
+                    const dayOfWeek = (itemDate.getDay() + 6) % 7; 
+                    const value = parseFloat(item[type]);
+                    if (!isNaN(value)) {
+                        processedData[dayOfWeek].sum += value;
+                        processedData[dayOfWeek].count++;
+                    }
+                });
                 const startOfWeek = new Date(baseDate);
                 startOfWeek.setDate(baseDate.getDate() - ((baseDate.getDay() + 6) % 7)); // 調整為本週一
-                for (let i = loopStart; i <= loopEnd; i++) {
+                for (let i = 0; i <= 6; i++) {
                     const date = new Date(startOfWeek);
                     date.setDate(startOfWeek.getDate() + i);
                     labels.push(`週${getWeekdayName(date).replace('（', '').replace('）', '')}`);
-                    const dayKey = date.getDate();
-                    const avg = processedData[dayKey] ? processedData[dayKey].sum / processedData[dayKey].count : null;
-                    values.push(avg);
+                    values.push(processedData[i].count > 0 ? processedData[i].sum / processedData[i].count : null);
                 }
             } else if (range === 'month') {
                 const daysInMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0).getDate();
-                loopStart = 1;
-                loopEnd = daysInMonth;
-                for (let i = loopStart; i <= loopEnd; i++) {
+                for (let i = 1; i <= daysInMonth; i++) {
+                    processedData[i] = { sum: 0, count: 0 };
+                }
+                rawData.forEach(item => {
+                    const itemDate = new Date(item.時間);
+                    const day = itemDate.getDate();
+                    const value = parseFloat(item[type]);
+                    if (!isNaN(value)) {
+                        processedData[day].sum += value;
+                        processedData[day].count++;
+                    }
+                });
+                for (let i = 1; i <= daysInMonth; i++) {
                     labels.push(`${i}日`);
-                    const avg = processedData[i] ? processedData[i].sum / processedData[i].count : null;
-                    values.push(avg);
+                    values.push(processedData[i].count > 0 ? processedData[i].sum / processedData[i].count : null);
                 }
             } else if (range === 'year') {
-                loopStart = 1;
-                loopEnd = 12;
-                for (let i = loopStart; i <= loopEnd; i++) {
+                for (let i = 1; i <= 12; i++) {
+                    processedData[i] = { sum: 0, count: 0 };
+                }
+                rawData.forEach(item => {
+                    const itemDate = new Date(item.時間);
+                    const month = itemDate.getMonth() + 1;
+                    const value = parseFloat(item[type]);
+                    if (!isNaN(value)) {
+                        processedData[month].sum += value;
+                        processedData[month].count++;
+                    }
+                });
+                for (let i = 1; i <= 12; i++) {
                     labels.push(`${i}月`);
-                    const avg = processedData[i] ? processedData[i].sum / processedData[i].count : null;
-                    values.push(avg);
+                    values.push(processedData[i].count > 0 ? processedData[i].sum / processedData[i].count : null);
                 }
             }
-
+            
             return { labels, values };
         }
-
         async function fetchAndDrawChart() {
             let threshold = null;
             if (currentType === "土壤濕度") {
@@ -580,25 +597,6 @@
                     thresholdInput.value = val;
                 }
             }
-            const ann = threshold !== null ? {
-                annotations: {
-                    thrLine: {
-                        type: "line",
-                        yMin: threshold,
-                        yMax: threshold,
-                        borderColor: "#FFF1E0",
-                        borderDash: [6, 6],
-                        borderWidth: 3,
-                        label: {
-                            enabled: true,
-                            content: `閾值 ${threshold}%`,
-                            position: "start",
-                            backgroundColor: "rgba(255, 241, 224, 0.7)",
-                            color: "#8EBB81"
-                        }
-                    }
-                }
-            } : {};
             
             const startDate = new Date(baseDate);
             const endDate = new Date(baseDate);
@@ -638,16 +636,42 @@
                 if (!response.ok) throw new Error("Network response was not ok");
                 const data = await response.json();
                 
-                if (!data.data || data.data.length === 0) {
-                    console.warn("沒有資料可畫圖");
-                    if (chartInstance) chartInstance.destroy();
-                    const ctx = document.getElementById("myChart").getContext("2d");
-                    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-                    return;
-                }
-
                 const { labels, values } = processDataForChart(data.data, currentType, currentRange);
+                
+                // 判斷是否有任何有效數據點
+                const hasData = values.some(val => val !== null);
 
+                // 根據是否有數據來設定註解
+                const annotations = {};
+                if (threshold !== null) {
+                    annotations.thrLine = {
+                        type: "line",
+                        yMin: threshold,
+                        yMax: threshold,
+                        borderColor: "#FFF1E0",
+                        borderDash: [6, 6],
+                        borderWidth: 3,
+                        label: {
+                            enabled: true,
+                            content: `閾值 ${threshold}%`,
+                            position: "start",
+                            backgroundColor: "rgba(255, 241, 224, 0.7)",
+                            color: "#8EBB81"
+                        }
+                    };
+                }
+                if (!hasData) {
+                    annotations.noDataLabel = {
+                        type: 'label',
+                        content: '這段時間沒有數據',
+                        font: {
+                            size: 16,
+                            color: '#FFF1E0'
+                        },
+                        position: 'center'
+                    };
+                }
+                
                 if (chartInstance) {
                     chartInstance.destroy();
                 }
@@ -711,7 +735,9 @@
                                     }
                                 }
                             },
-                            ...ann
+                            annotation: {
+                                annotations: annotations
+                            }
                         }
                     }
                 });

@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request, render_template, redirect, url_for
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from sqlalchemy import create_engine, text
+import pytz
 
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -87,7 +88,7 @@ class PlantModel:
 
         # 從 Google Sheets 取得數據
         # PlantModel 內修改 get_plant_data
-    def get_plant_data(self, sheet_id, worksheet_name, period='day'):
+    def get_plant_data(self, sheet_id, worksheet_name, start_date=None, end_date=None):
         try:
             # 讀取 Google Sheets 資料
             sheet = self.client.open_by_key(sheet_id)
@@ -101,27 +102,44 @@ class PlantModel:
             rows = values[1:]
             df = pd.DataFrame(rows, columns=headers)
 
-            if "時間" not in df.columns:
-                logging.error(f"找不到 '時間' 欄位，實際欄位有: {df.columns}")
-                return []
+            numeric_cols = ["環境溫度", "環境濕度", "土壤濕度", "光照度"]
+            for col in numeric_cols:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
             
+            # 將時間欄位轉換為 datetime 物件，並處理錯誤
+            taipei_tz = pytz.timezone('Asia/Taipei')
             df["時間"] = pd.to_datetime(df["時間"], format="%Y/%m/%d-%H:%M:%S", errors="coerce")
+            df = df.dropna(subset=["時間"]) # 移除時間轉換失敗的列
+            df["時間"] = df["時間"].dt.tz_localize(taipei_tz, ambiguous='infer')
+            df["時間"] = df["時間"].dt.tz_convert('UTC')
 
-            if df["時間"].isna().all():
-                logging.warning("所有時間解析失敗，範例: %s", df["時間"].head())
-                return []
+            if start_date and end_date:
+                # 確保傳入的時間是時區感知的，並轉換為 UTC
+                start_date_utc = pd.to_datetime(start_date, utc=True)
+                end_date_utc = pd.to_datetime(end_date, utc=True)
+                
+                # 將 DataFrame 的時間欄位轉換為時區感知的，如果它不是的話
+                # 如果已經是時區感知的，就直接轉換到 UTC
+                if df['時間'].dt.tz is None:
+                    df_time_utc = df['時間'].dt.tz_localize('UTC')
+                else:
+                    df_time_utc = df['時間'].dt.tz_convert('UTC')
 
-            filtered = df
-            if filtered.empty:
-                logging.info("過濾後無資料，可能時間都比 start_date 早")
-                return []
-
-            return filtered.to_dict(orient="records")
+                # 根據時間範圍過濾數據
+                filtered_df = df[(df_time_utc >= start_date_utc) & (df_time_utc <= end_date_utc)].copy()
+                logging.info(f"過濾後的資料筆數: {len(filtered_df)}")
+                return filtered_df.to_dict(orient="records")
+            
+            else:
+                # 如果沒有指定時間範圍，回傳所有資料 (或最近一筆)
+                # 為了最新的數據顯示，我們只回傳最新的前 100 筆
+                latest_data = df.sort_values(by='時間', ascending=False).head(100).to_dict(orient="records")
+                logging.info(f"回傳最新 {len(latest_data)} 筆資料。")
+                return latest_data
 
         except Exception as e:
             logging.error(f"取得植物資料錯誤: {e}")
             return []
-
 
 # -----------------------------
 # Controller 層
@@ -179,7 +197,16 @@ class PlantController:
             plant = self.model.get_plant_by_id(plant_id)
             if not plant:
                 return jsonify({"error": "找不到植物"}), 404
-            data = self.model.get_plant_data(plant.sheet_id, plant.mac_address)
+            
+            start_iso = request.args.get('start')
+            end_iso = request.args.get('end')
+            
+            start_date = datetime.fromisoformat(start_iso.replace('Z', '+00:00')) if start_iso else None
+            end_date = datetime.fromisoformat(end_iso.replace('Z', '+00:00')) if end_iso else None
+            
+            logging.info(f"API 請求的 plant_id: {plant_id}, start_date: {start_date}, end_date: {end_date}")
+            
+            data = self.model.get_plant_data(plant.sheet_id, plant.mac_address, start_date=start_date, end_date=end_date)
             return jsonify({"data": data})
 
         @self.app.route('/api/delete_plant/<int:plant_id>', methods=['POST'])
