@@ -14,9 +14,8 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             color: #333;
-            position: relative;
             transition: all 0.5s ease;
         }
         .header {
@@ -61,9 +60,6 @@
             padding: 20px;
             width: 100%;
             max-width: 500px;
-            opacity: 0;
-            visibility: hidden;
-            transition: opacity 0.5s ease, visibility 0.5s ease;
         }
         .plant-card {
             background-color: #8EBB81;
@@ -90,7 +86,6 @@
             margin-bottom: 10px;
             border: 3px solid #FFF1E0;
         }
-        /* 新增的選單樣式 */
         .plant-options {
             position: absolute;
             top: 0;
@@ -130,15 +125,47 @@
             background-color: #FF6B6B;
             color: #FFF1E0;
         }
+        .add-prompt {
+            text-align: center;
+            padding: 20px;
+            display: flex; /* 啟用彈性盒子佈局 */
+            flex-direction: column; /* 子元素垂直排列 */
+            align-items: center; /* 子元素水平置中 */
+            justify-content: center; /* 子元素垂直置中 */
+            flex-grow: 1;
+        }
+        .add-prompt p {
+            font-size: 24px;
+            font-weight: bold;
+            color: #8EBB81;
+            margin-bottom: 20px;
+        }
+        .add-prompt .loader {
+            border: 5px solid #8EBB81;
+            border-top: 5px solid transparent;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
+    {% if not plants %}
+    <div class="add-prompt">
+        <p>請開啟裝置，並使用手機連線至裝置的 Wi-Fi 熱點</p>
+        <div class="loader"></div>
+        <p>正在等候裝置配對...</p>
+    </div>
+    {% else %}
     <div class="header">
         <a href="/addPlant" class="add-btn small">+</a>
     </div>
-
-    <div id="initial-add-btn" class="add-btn">+</div>
-
     <div id="plant-list" class="plant-list">
         {% for plant in plants %}
         <div class="plant-card" data-id="{{ plant.id }}" data-mac="{{ plant.mac_address }}">
@@ -153,27 +180,12 @@
         </div>
         {% endfor %}
     </div>
+    {% endif %}
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const initialAddBtn = document.getElementById('initial-add-btn');
-            const header = document.querySelector('.header');
-            const plantList = document.getElementById('plant-list');
+            // 處理有植物時的卡片點擊事件
             const plantCards = document.querySelectorAll('.plant-card');
-            
-            if (plantCards.length > 0) {
-                document.body.style.justifyContent = 'flex-start';
-                header.style.opacity = 1;
-                header.style.visibility = 'visible';
-                initialAddBtn.style.display = 'none';
-                plantList.style.opacity = 1;
-                plantList.style.visibility = 'visible';
-            } else {
-                initialAddBtn.addEventListener('click', function() {
-                    window.location.href = '/addPlant';
-                });
-            }
-
             plantCards.forEach(card => {
                 card.addEventListener('click', function(event) {
                     const plantId = this.dataset.id;
@@ -183,12 +195,35 @@
                 });
             });
 
-            document.body.addEventListener('click', function() {
-                document.querySelectorAll('.plant-options').forEach(menu => {
-                    menu.classList.remove('visible');
-                });
+            // 點擊頁面其他地方關閉選單
+            document.body.addEventListener('click', function(event) {
+                if (!event.target.closest('.plant-card')) {
+                    document.querySelectorAll('.plant-options').forEach(menu => {
+                        menu.classList.remove('visible');
+                    });
+                }
             });
         });
+
+        // 檢查是否有新的植物資料
+        function checkNewPlants() {
+            // 由於 /api/plants 路由不存在，我們簡單地檢查當前頁面是否有植物
+            // 如果沒有，就每 5 秒重新整理一次頁面
+            const hasPlants = document.querySelectorAll('.plant-card').length > 0;
+            if (!hasPlants) {
+                setTimeout(() => {
+                    window.location.reload();
+                }, 5000); // 每 5 秒檢查一次
+            }
+        }
+
+        // 當頁面載入完成且沒有植物時，開始檢查
+        window.onload = function() {
+            const hasPlants = document.querySelectorAll('.plant-card').length > 0;
+            if (!hasPlants) {
+                checkNewPlants();
+            }
+        };
 
         function viewPlant(plantId) {
             window.location.href = `/history?id=${plantId}`;

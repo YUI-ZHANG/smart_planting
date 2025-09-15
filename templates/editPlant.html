@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>更改植物資訊</title>
+    <title>編輯植物資訊</title>
     <style>
         body {
             font-family: sans-serif;
@@ -65,6 +65,7 @@
             cursor: pointer;
             font-size: 16px;
             transition: transform 0.2s ease;
+            flex-grow: 1;
         }
         .btn:active {
             transform: scale(0.95);
@@ -78,109 +79,81 @@
             border: 2px solid #FFF1E0;
             color: #FFF1E0;
         }
-        .pairing-section {
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
-        }
-        .pairing-code {
-            font-size: 36px;
-            font-weight: bold;
-            background-color: #FFF1E0;
-            color: #8EBB81;
-            padding: 10px 20px;
-            border-radius: 10px;
-            text-align: center;
-        }
-        .copy-btn {
-            background-color: #FFF1E0;
-            color: #8EBB81;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: transform 0.2s ease;
-        }
-        .copy-btn:active {
-            transform: scale(0.95);
-        }
-        #qrcode {
-            background-color: #fff;
-            padding: 10px;
-            border-radius: 10px;
-        }
     </style>
-    <script src="https://cdn.rawgit.com/davidshimjs/qrcodejs/gh-pages/qrcode.min.js"></script>
 </head>
 <body>
     <div class="modal-container">
-        <div id="add-form-section">
-            <h2>編輯植物</h2>
-            <form id="add-plant-form" action="/create_plant" method="POST" enctype="multipart/form-data">
-                <div class="form-group">
-                    <label for="plant-name">植物名稱</label>
-                    <input type="text" id="plant-name" name="plant_name" required>
-                </div>
-                <div class="form-group">
-                    <label for="plant-photo">植物照片</label>
-                    <input type="file" id="plant-photo" name="plant_photo" accept="image/*">
-                </div>
-                <div class="buttons">
-                    <button type="button" class="btn btn-secondary" onclick="window.history.back()">取消</button>
-                    <button type="submit" class="btn btn-primary">編輯</button>
-                </div>
-            </form>
-        </div>
-
+        <h2>編輯植物</h2>
+        <form id="edit-plant-form" enctype="multipart/form-data">
+            <input type="hidden" id="plant-id" name="plant_id">
+            <div class="form-group">
+                <label for="plant-name">植物名稱</label>
+                <input type="text" id="plant-name" name="plant_name" required>
+            </div>
+            <div class="form-group">
+                <label for="plant-photo">植物照片</label>
+                <input type="file" id="plant-photo" name="plant_photo" accept="image/*">
+            </div>
+            <div class="buttons">
+                <button type="button" class="btn btn-secondary" onclick="window.history.back()">取消</button>
+                <button type="submit" class="btn btn-primary">儲存</button>
+            </div>
+        </form>
     </div>
     
     <script>
-        const form = document.getElementById('add-plant-form');
-        form.addEventListener('submit', async function(event) {
-            event.preventDefault();
-            const formData = new FormData(this);
-            const formSection = document.getElementById('add-form-section');
-            const pairingSection = document.getElementById('pairing-section');
+        document.addEventListener('DOMContentLoaded', async function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const plantId = urlParams.get('id');
 
-            try {
-                const response = await fetch(this.action, {
-                    method: 'POST',
-                    body: formData
-                });
-                const result = await response.json();
-
-                if (response.ok) {
-                    const pairingCode = result.pairing_code;
-                    const deviceUrl = result.device_url;
-                    
-                    formSection.style.display = 'none';
-                    pairingSection.style.display = 'flex';
-                    document.getElementById('pairing-code').textContent = pairingCode;
-                    
-                    new QRCode(document.getElementById("qrcode"), {
-                        text: deviceUrl,
-                        width: 128,
-                        height: 128
-                    });
-
-                } else {
-                    alert(`編輯植物失敗：${result.error}`);
-                }
-            } catch (error) {
-                alert("編輯植物失敗：網路或伺服器錯誤。");
-                console.error('Error:', error);
+            if (!plantId) {
+                alert('找不到植物 ID！');
+                window.location.href = '/';
+                return;
             }
-        });
 
-        function copyCode() {
-            const pairingCode = document.getElementById('pairing-code').textContent;
-            navigator.clipboard.writeText(pairingCode).then(() => {
-                alert("配對碼已複製！");
-            }).catch(err => {
-                console.error('Failed to copy text: ', err);
+            // 將 ID 填入隱藏欄位
+            document.getElementById('plant-id').value = plantId;
+
+            // 載入當前植物資料並填入表單
+            try {
+                const response = await fetch(`/api/plant/${plantId}`);
+                if (!response.ok) throw new Error('無法載入植物資料');
+                const plant = await response.json();
+                
+                document.getElementById('plant-name').value = plant.name;
+            } catch (error) {
+                console.error('載入植物資料失敗：', error);
+                alert('載入資料失敗，請稍後再試。');
+                window.location.href = '/';
+                return;
+            }
+
+            // 監聽表單提交事件
+            const form = document.getElementById('edit-plant-form');
+            form.addEventListener('submit', async function(event) {
+                event.preventDefault();
+                const formData = new FormData(this);
+
+                try {
+                    const response = await fetch(`/api/update_plant/${plantId}`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        alert(result.message);
+                        window.location.href = '/';
+                    } else {
+                        alert(`儲存失敗：${result.error}`);
+                    }
+                } catch (error) {
+                    alert("儲存失敗：網路或伺服器錯誤。");
+                    console.error('Error:', error);
+                }
             });
-        }
+        });
     </script>
 </body>
 </html>

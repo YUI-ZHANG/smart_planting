@@ -665,9 +665,9 @@
                         type: 'label',
                         content: '這段時間沒有數據',
                         font: {
-                            size: 16,
-                            color: '#FFF1E0'
+                            size: 16
                         },
+                        color: '#8EBB81',
                         position: 'center'
                     };
                 }
@@ -718,7 +718,12 @@
                             legend: {
                                 labels: {
                                     color: "#8EBB81",
-                                    font: { size: 16 }
+                                    font: {
+                                         size: 16 
+                                }, 
+                                usePointStyle: true,
+                                pointStyle: 'line', // 設定為線條樣式
+                                pointStyleWidth: -1
                                 }
                             },
                             tooltip: {
