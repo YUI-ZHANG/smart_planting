@@ -10,8 +10,9 @@ from sqlalchemy import create_engine, text
 import pytz
 
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import gspread.exceptions
+from google.oauth2 import service_account
+
 
 # -----------------------------
 # Model 層
@@ -29,7 +30,7 @@ class PlantModel:
 
         # Google Sheets 設定
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_name(gs_keyfile, scope)
+        creds = service_account.Credentials.from_service_account_file(gs_keyfile, scopes=scope)
         self.client = gspread.authorize(creds)
 
         # 初始化資料表
@@ -154,14 +155,13 @@ class PlantModel:
                 return filtered_df.to_dict(orient="records")
             
             else:
-                latest_data = df.sort_values(by='時間', ascending=False).head(100).to_dict(orient="records")
+                latest_data = df.sort_values(by='時間', ascending=False).head(1).to_dict(orient="records")
                 logging.info(f"回傳最新 {len(latest_data)} 筆資料。")
                 return latest_data
 
         except Exception as e:
             logging.error(f"取得植物資料錯誤: {e}")
             return []
-
 # -----------------------------
 # Controller 層
 # -----------------------------
@@ -170,9 +170,12 @@ class PlantController:
         self.app = app
         self.model = model
         CORS(self.app)
+        # 新增：儲存 ESP 指令的暫存區
+        self.device_commands = {}
         self.register_routes()
 
     def register_routes(self):
+        # 網頁路由
         @self.app.route('/')
         def home():
             plants = self.model.get_all_plants()
@@ -189,31 +192,7 @@ class PlantController:
         def history():
             return render_template('history.html')
 
-        @self.app.route('/api/register_device', methods=['POST'])
-        def api_register_device():
-            try:
-                data = request.json
-                mac_address = data.get('mac_address')
-                plant_name = data.get('name', '未命名植物')
-
-                if not mac_address:
-                    return jsonify({"error": "MAC 地址不能為空"}), 400
-
-                if self.model.get_plant_by_mac(mac_address):
-                    return jsonify({"success": True, "message": "裝置已配對。"})
-                
-                if not self.model.create_worksheet(mac_address):
-                    return jsonify({"error": "無法建立 Google Sheets 工作表"}), 500
-                
-                photo_path = 'https://via.placeholder.com/150'
-                self.model.add_plant(plant_name, photo_path, mac_address)
-                
-                return jsonify({"success": True, "message": "裝置配對成功！"})
-            
-            except Exception as e:
-                logging.error(f"裝置配對錯誤: {e}")
-                return jsonify({"error": str(e)}), 500
-
+        # API 路由
         @self.app.route('/api/plant/<int:plant_id>', methods=['GET'])
         def api_get_plant(plant_id):
             plant = self.model.get_plant_by_id(plant_id)
@@ -223,6 +202,7 @@ class PlantController:
                 "id": plant.id,
                 "name": plant.name,
                 "photo_path": plant.photo_path,
+                "sheet_id": plant.sheet_id,
                 "mac_address": plant.mac_address
             })
         
@@ -266,15 +246,80 @@ class PlantController:
                 return jsonify({"error": plant}), 404
             return jsonify({"success": True, "message": f"已刪除植物 {plant.name}"})
 
+        # ---------------------------
+        # ⚡ ESP8266 裝置相關 API
+        # ---------------------------
+        @self.app.route('/api/register_device_auto', methods=['POST'])
+        def api_register_device():
+            try:
+                data = request.json
+                mac_address = data.get('mac_address')
+                plant_name = data.get('name', '未命名植物')
+                if not mac_address:
+                    return jsonify({"error": "MAC 地址不能為空"}), 400
+                if self.model.get_plant_by_mac(mac_address):
+                    return jsonify({"success": True, "message": "裝置已配對。"})
+                if not self.model.create_worksheet(mac_address):
+                    return jsonify({"error": "無法建立 Google Sheets 工作表"}), 500
+                photo_path = 'https://via.placeholder.com/150'
+                self.model.add_plant(plant_name, photo_path, mac_address)
+                return jsonify({"success": True, "message": "裝置配對成功！"})
+            except Exception as e:
+                logging.error(f"裝置配對錯誤: {e}")
+                return jsonify({"error": str(e)}), 500
+
+        @self.app.route('/api/check_reset/<mac_address>', methods=['GET'])
+        @self.app.route('/api/check_reset/<mac_address>/', methods=['GET'])
+        def check_reset(mac_address):
+            try:
+                plant = self.model.get_plant_by_mac(mac_address)
+                if not plant:
+                    return jsonify({"error": "找不到此 MAC 位址的裝置"}), 404
+                reset_pending = plant.reset_flag == 1
+                if reset_pending:
+                    with self.model.engine.connect() as conn:
+                        conn.execute(text("UPDATE plants SET reset_flag = 0 WHERE mac_address = :mac_address"), {"mac_address": mac_address})
+                        conn.commit()
+                return jsonify({"reset_pending": reset_pending})
+            except Exception as e:
+                logging.error(f"檢查遠端重設錯誤: {e}")
+                return jsonify({"error": str(e)}), 500
+
+        @self.app.route('/api/set_threshold', methods=['POST'])
+        def set_threshold():
+            try:
+                data = request.get_json()
+                mac_address = data.get("mac_address")
+                caseswitch = data.get("case")
+                value = data.get("value")
+                if not mac_address or caseswitch is None or value is None:
+                    return jsonify({"error": "缺少參數"}), 400
+                self.device_commands[mac_address] = {
+                    "case": int(caseswitch),
+                    "value": int(value)
+                }
+                return jsonify({
+                    "message": f"已設定指令給 {mac_address}",
+                    "command": self.device_commands[mac_address]
+                }), 200
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+
+        @self.app.route('/api/get_command/<mac_address>', methods=['GET'])
+        def get_command(mac_address):
+            if mac_address in self.device_commands:
+                command = self.device_commands.pop(mac_address)
+                return jsonify({"has_command": True, "command": command})
+            else:
+                return jsonify({"has_command": False})
+
+
+
 # -----------------------------
 # 啟動應用程式
 # -----------------------------
 if __name__ == '__main__':
     app = Flask(__name__)
-    UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'uploads')
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
     model = PlantModel(app)
     controller = PlantController(app, model)
     controller.app.run(debug=True, host='0.0.0.0', port=5000)

@@ -356,6 +356,32 @@
         const unitMap = { "土壤濕度": "%", "光照度": "%", "環境溫度": "°C", "環境濕度": "%" };
         let autoWaterEnabled = false;
 
+        // ✨ 新增函式：將 UTC 時間轉換為台北當地時間
+        function formatLocalTime(utcDateString) {
+            if (!utcDateString) return '--';
+            const date = new Date(utcDateString);
+            // 使用 'zh-TW' 區域和 'Asia/Taipei' 時區來格式化
+            const options = {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+                timeZone: 'Asia/Taipei'
+            };
+            return date.toLocaleString('zh-TW', options);
+        }
+        
+        // ✨ 新增函式：將 UTC Date 物件轉換為台北當地時間
+        function toTaipeiTime(date) {
+            if (!date) return null;
+            const offset = date.getTimezoneOffset() * 60000; // 取得本地時區與 UTC 的分鐘差
+            const taipeiOffset = 8 * 60 * 60000; // 台北時區差（+8 小時）
+            return new Date(date.getTime() + offset + taipeiOffset);
+        }
+
         document.addEventListener("DOMContentLoaded", () => {
             fetchAndDrawChart();
             fetchLatestData();
@@ -386,7 +412,8 @@
                     document.getElementById('val-light').textContent = `${latestGlobal.光照度} %`;
                     document.getElementById('val-temp').textContent = `${latestGlobal.環境溫度}°C`;
                     document.getElementById('val-humid').textContent = `${latestGlobal.環境濕度}%`;
-                    document.getElementById('info-text').textContent = `最新數據：${latestGlobal.時間}`;
+                    // ✨ 這裡使用新的函式來格式化時間
+                    document.getElementById('info-text').textContent = `最新數據：${formatLocalTime(latestGlobal.時間)}`;
                 }
             } catch (error) {
                 console.error("Failed to fetch latest data:", error);
@@ -429,7 +456,7 @@
                 if (response.ok) {
                     console.log('自動澆水設定已儲存。');
                 } else {
-                    console.error('自動澆水設定儲存失敗：', result.error);
+                    console.log('自動澆水設定儲存失敗：', result.error);
                 }
             } catch (error) {
                 console.error('儲存自動澆水設定時發生錯誤：', error);
@@ -442,16 +469,18 @@
         }
 
         function updateRangeLabel() {
-            const y = baseDate.getFullYear();
-            const m = baseDate.getMonth() + 1;
-            const d = baseDate.getDate();
+            // 使用 toTaipeiTime 來確保 baseDate 是以當地時區計算
+            const localBaseDate = toTaipeiTime(baseDate);
+            const y = localBaseDate.getFullYear();
+            const m = localBaseDate.getMonth() + 1;
+            const d = localBaseDate.getDate();
             let label = "";
             if (currentRange === "day") {
-                label = `${y}/${m}/${d}${getWeekdayName(baseDate)}`;
+                label = `${y}/${m}/${d}${getWeekdayName(localBaseDate)}`;
             } else if (currentRange === "week") {
-                const dow = baseDate.getDay();
-                const monday = new Date(baseDate);
-                monday.setDate(baseDate.getDate() - ((dow + 6) % 7));
+                const dow = localBaseDate.getDay();
+                const monday = new Date(localBaseDate);
+                monday.setDate(localBaseDate.getDate() - ((dow + 6) % 7));
                 const sunday = new Date(monday);
                 sunday.setDate(monday.getDate() + 6);
                 label = `${monday.getFullYear()}/${monday.getMonth() + 1}/${monday.getDate()}${getWeekdayName(monday)} ~ ${sunday.getFullYear()}/${sunday.getMonth() + 1}/${sunday.getDate()}${getWeekdayName(sunday)}`;
@@ -494,7 +523,6 @@
             fetchAndDrawChart();
         }
 
-        // 新增的資料處理函式
         function processDataForChart(rawData, type, range) {
             if (!rawData || rawData.length === 0) {
                 return { labels: [], values: [] };
@@ -504,13 +532,14 @@
             const labels = [];
             const values = [];
 
-            // 統一處理邏輯，確保每個時間區間的數據都能正確對應到索引
             if (range === 'day') {
                 for (let i = 0; i <= 23; i++) {
                     processedData[i] = { sum: 0, count: 0 };
                 }
                 rawData.forEach(item => {
-                    const itemDate = new Date(item.時間);
+                    // ✨ 轉換為當地時間
+                    const itemDate = toTaipeiTime(new Date(item.時間));
+                    if (!itemDate) return;
                     const hour = itemDate.getHours();
                     const value = parseFloat(item[type]);
                     if (!isNaN(value)) {
@@ -523,13 +552,13 @@
                     values.push(processedData[i].count > 0 ? processedData[i].sum / processedData[i].count : null);
                 }
             } else if (range === 'week') {
-                // 修正：使用星期幾 (0-6) 作為索引，並預先初始化
                 for (let i = 0; i <= 6; i++) {
                     processedData[i] = { sum: 0, count: 0 };
                 }
                 rawData.forEach(item => {
-                    const itemDate = new Date(item.時間);
-                    // 使用 getDay() 取得星期幾，並調整為週一為 0
+                    // ✨ 轉換為當地時間
+                    const itemDate = toTaipeiTime(new Date(item.時間));
+                    if (!itemDate) return;
                     const dayOfWeek = (itemDate.getDay() + 6) % 7; 
                     const value = parseFloat(item[type]);
                     if (!isNaN(value)) {
@@ -537,8 +566,9 @@
                         processedData[dayOfWeek].count++;
                     }
                 });
-                const startOfWeek = new Date(baseDate);
-                startOfWeek.setDate(baseDate.getDate() - ((baseDate.getDay() + 6) % 7)); // 調整為本週一
+                const localBaseDate = toTaipeiTime(baseDate);
+                const startOfWeek = new Date(localBaseDate);
+                startOfWeek.setDate(localBaseDate.getDate() - ((localBaseDate.getDay() + 6) % 7)); 
                 for (let i = 0; i <= 6; i++) {
                     const date = new Date(startOfWeek);
                     date.setDate(startOfWeek.getDate() + i);
@@ -546,12 +576,15 @@
                     values.push(processedData[i].count > 0 ? processedData[i].sum / processedData[i].count : null);
                 }
             } else if (range === 'month') {
-                const daysInMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0).getDate();
+                const localBaseDate = toTaipeiTime(baseDate);
+                const daysInMonth = new Date(localBaseDate.getFullYear(), localBaseDate.getMonth() + 1, 0).getDate();
                 for (let i = 1; i <= daysInMonth; i++) {
                     processedData[i] = { sum: 0, count: 0 };
                 }
                 rawData.forEach(item => {
-                    const itemDate = new Date(item.時間);
+                    // ✨ 轉換為當地時間
+                    const itemDate = toTaipeiTime(new Date(item.時間));
+                    if (!itemDate) return;
                     const day = itemDate.getDate();
                     const value = parseFloat(item[type]);
                     if (!isNaN(value)) {
@@ -568,7 +601,9 @@
                     processedData[i] = { sum: 0, count: 0 };
                 }
                 rawData.forEach(item => {
-                    const itemDate = new Date(item.時間);
+                    // ✨ 轉換為當地時間
+                    const itemDate = toTaipeiTime(new Date(item.時間));
+                    if (!itemDate) return;
                     const month = itemDate.getMonth() + 1;
                     const value = parseFloat(item[type]);
                     if (!isNaN(value)) {
@@ -584,6 +619,7 @@
             
             return { labels, values };
         }
+        
         async function fetchAndDrawChart() {
             let threshold = null;
             if (currentType === "土壤濕度") {
@@ -638,10 +674,8 @@
                 
                 const { labels, values } = processDataForChart(data.data, currentType, currentRange);
                 
-                // 判斷是否有任何有效數據點
                 const hasData = values.some(val => val !== null);
 
-                // 根據是否有數據來設定註解
                 const annotations = {};
                 if (threshold !== null) {
                     annotations.thrLine = {
@@ -719,11 +753,11 @@
                                 labels: {
                                     color: "#8EBB81",
                                     font: {
-                                         size: 16 
-                                }, 
-                                usePointStyle: true,
-                                pointStyle: 'line', // 設定為線條樣式
-                                pointStyleWidth: -1
+                                        size: 16 
+                                    }, 
+                                    usePointStyle: true,
+                                    pointStyle: 'line', 
+                                    pointStyleWidth: -1
                                 }
                             },
                             tooltip: {
