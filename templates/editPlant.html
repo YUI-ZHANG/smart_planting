@@ -67,6 +67,10 @@
             transition: transform 0.2s ease;
             flex-grow: 1;
         }
+        .btn-delete {
+            background-color: #FF6B6B;
+            color: #FFF1E0;
+        }
         .btn:active {
             transform: scale(0.95);
         }
@@ -96,6 +100,7 @@
             </div>
             <div class="buttons">
                 <button type="button" class="btn btn-secondary" onclick="window.history.back()">取消</button>
+                <button type="button" class="btn btn-delete" onclick="deletePlant()">刪除</button>
                 <button type="submit" class="btn btn-primary">儲存</button>
             </div>
         </form>
@@ -154,6 +159,26 @@
                 }
             });
         });
+                    async function deletePlant() {
+            const plantId = new URLSearchParams(window.location.search).get('id');
+            if (confirm("您確定要刪除這筆植物紀錄嗎？刪除後無法復原，數據紀錄全都會不見唷！")) {
+                try {
+                    const response = await fetch(`/api/delete_plant/${plantId}`, {
+                        method: 'POST'
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        alert(result.message);
+                        window.location.href = '/'; // 刪除成功後回到首頁
+                    } else {
+                        alert(`刪除失敗：${result.error}`);
+                    }
+                } catch (error) {
+                    alert("刪除失敗：網路或伺服器錯誤。");
+                }
+            }
+        }
+
     </script>
 </body>
 </html>

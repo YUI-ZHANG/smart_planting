@@ -51,6 +51,51 @@ class PlantModel:
             """))
             conn.commit()
             logging.info("資料表 'plants' 檢查/創建成功。")
+    def delete_plant(self, plant_id):
+        """
+        刪除指定 plant_id 的所有數據，包括 Google Sheets 和資料庫紀錄。
+        """
+        conn = None
+        try:
+            # 1. 取得植物的完整資訊
+            plant = self.get_plant_by_id(plant_id)
+            if not plant:
+                return False, "找不到植物"
+
+            # 2. 刪除 Google Sheets 工作表
+            try:
+                sheet = self.client.open_by_key(self.fixed_sheet_id)
+                worksheet = sheet.worksheet(plant.mac_address)
+                sheet.del_worksheet(worksheet)
+                logging.info(f"已成功刪除 Google Sheets 工作表: {plant.mac_address}")
+            except gspread.exceptions.WorksheetNotFound:
+                logging.warning(f"Google Sheets 工作表 '{plant.mac_address}' 不存在，略過刪除。")
+            except Exception as e:
+                logging.error(f"刪除 Google Sheets 工作表時發生錯誤: {e}")
+                # 這裡選擇不中斷，讓資料庫刪除繼續進行
+
+            # 3. 檢查照片檔案是否存在並刪除
+            if plant.photo_path and plant.photo_path.startswith('/static/uploads/'):
+                filename = os.path.basename(plant.photo_path)
+                file_path = os.path.join(self.upload_folder, filename)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logging.info(f"已成功刪除植物 ID {plant_id} 的照片檔案: {file_path}")
+                else:
+                    logging.warning(f"找不到植物 ID {plant_id} 的照片檔案: {file_path}")
+
+            # 4. 刪除資料庫中的紀錄
+            with self.engine.connect() as conn:
+                # 刪除 plants 表中的植物紀錄
+                result = conn.execute(text("DELETE FROM plants WHERE id=:id"), {"id": plant_id})
+                conn.commit()
+                logging.info(f"已成功刪除植物 ID {plant_id} 的資料庫紀錄。")
+
+            return True, plant
+        
+        except Exception as e:
+            logging.error(f"刪除植物時發生錯誤: {e}")
+            return False, str(e)
 
     def add_plant(self, name, photo_path, mac_address):
         with self.engine.connect() as conn:
@@ -206,6 +251,32 @@ class PlantController:
                 "mac_address": plant.mac_address
             })
         
+        @self.app.route('/api/delete_plant/<int:plant_id>', methods=['POST'])
+        def delete_plant(plant_id):
+            """
+            透過 POST 請求刪除一筆植物紀錄及其所有關聯數據。
+            """
+            try:
+                success, message = self.model.delete_plant(plant_id)
+                if success:
+                    logging.info(f"已成功刪除植物 ID {plant_id}。")
+                    return jsonify({
+                        "success": True, 
+                        "message": "植物紀錄已成功刪除。"
+                    }), 200
+                else:
+                    logging.warning(f"刪除失敗：{message}")
+                    return jsonify({
+                        "success": False, 
+                        "error": message
+                    }), 404
+            except Exception as e:
+                logging.error(f"刪除植物紀錄時發生錯誤: {e}")
+                return jsonify({
+                    "success": False, 
+                    "error": f"伺服器錯誤：無法刪除植物紀錄。"
+                }), 500
+            
         @self.app.route('/api/update_plant/<int:plant_id>', methods=['POST'])
         def api_update_plant(plant_id):
             try:
@@ -239,12 +310,26 @@ class PlantController:
             data = self.model.get_plant_data(plant.sheet_id, plant.mac_address, start_date=start_date, end_date=end_date)
             return jsonify({"data": data})
 
-        @self.app.route('/api/delete_plant/<int:plant_id>', methods=['POST'])
-        def delete_plant(plant_id):
-            success, plant = self.model.delete_plant(plant_id)
-            if not success:
-                return jsonify({"error": plant}), 404
-            return jsonify({"success": True, "message": f"已刪除植物 {plant.name}"})
+            
+        @self.app.route('/api/remote_reset', methods=['POST'])
+        def api_remote_reset():
+            try:
+                data = request.get_json()
+                mac_address = data.get("mac_address")
+                if not mac_address:
+                    return jsonify({"error": "MAC 地址不能為空"}), 400
+
+                # 在資料庫中設定 reset_flag
+                with self.model.engine.connect() as conn:
+                    result = conn.execute(text("UPDATE plants SET reset_flag = 1 WHERE mac_address = :mac_address"), {"mac_address": mac_address})
+                    conn.commit()
+                
+                if result.rowcount == 0:
+                    return jsonify({"error": "找不到此 MAC 位址的裝置"}), 404
+
+                return jsonify({"success": True, "message": f"已設定遠端重設指令給 {mac_address}"})
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
 
         # ---------------------------
         # ⚡ ESP8266 裝置相關 API
@@ -307,11 +392,89 @@ class PlantController:
 
         @self.app.route('/api/get_command/<mac_address>', methods=['GET'])
         def get_command(mac_address):
-            if mac_address in self.device_commands:
-                command = self.device_commands.pop(mac_address)
+            command = self.device_commands.get(mac_address)
+            if command:
                 return jsonify({"has_command": True, "command": command})
             else:
                 return jsonify({"has_command": False})
+
+        # 新增一個 API，讓裝置在執行指令後可以回報
+        @self.app.route('/api/command_executed/<mac_address>', methods=['POST'])
+        def command_executed(mac_address):
+            if mac_address in self.device_commands:
+                del self.device_commands[mac_address]
+                return jsonify({"success": True, "message": "指令已從佇列移除"})
+            return jsonify({"success": False, "message": "指令不存在"})
+
+        @self.app.route('/api/update_water_settings', methods=['POST'])
+        def update_water_setting():
+            try:
+                data = request.get_json()
+                plant_id = data.get("plant_id")
+                enabled = data.get("enabled")
+                threshold = data.get("threshold")
+                print(threshold)
+                if not plant_id or enabled is None or threshold is None:
+                    return jsonify({"error": "缺少參數"}), 400
+
+                # 取得植物的 MAC 位址
+                plant = self.model.get_plant_by_id(plant_id)
+                if not plant:
+                    return jsonify({"error": "找不到此植物"}), 404
+                
+                mac_address = plant.mac_address
+
+                self.device_commands[mac_address] = {
+                    "case": 1, 
+                    "value": int(threshold)
+                }
+
+                self.device_commands[mac_address] = {
+                    "case": 4, 
+                    "value": 1 if enabled else 0
+                }
+                return jsonify({
+                    "message": "已設定澆水指令",
+                    "mac_address": mac_address
+                }), 200
+
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+        
+        @self.app.route('/api/water_now', methods=['POST'])
+        def water_now():
+            try:
+                data = request.get_json()
+                plant_id = data.get("plant_id") # 接收 plant_id
+
+                if not plant_id:
+                    return jsonify({"error": "植物 ID 不能為空"}), 400
+
+                # 透過 plant_id 查詢植物資料，包含 mac_address
+                plant = self.model.get_plant_by_id(plant_id)
+                if not plant:
+                    return jsonify({"error": "找不到對應的植物。"}), 404
+                
+                mac_address = plant.mac_address
+                
+                # 設定立即澆水的指令
+                command = {
+                    "case": 3,
+                    "value": 1
+                }
+                
+                # 將指令儲存到暫存區
+                self.device_commands[mac_address] = command
+                
+                logging.info(f"已設定立即澆水指令給 {mac_address} (植物 ID: {plant_id})")
+                return jsonify({
+                    "success": True, 
+                    "message": f"已發送立即澆水指令給裝置 {mac_address}。",
+                    "command": command
+                }), 200
+            except Exception as e:
+                logging.error(f"發送立即澆水指令錯誤: {e}")
+                return jsonify({"error": "無法發送立即澆水指令。"}), 500
 
 
 
