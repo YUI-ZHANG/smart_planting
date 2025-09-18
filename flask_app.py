@@ -51,6 +51,14 @@ class PlantModel:
             """))
             conn.commit()
             logging.info("資料表 'plants' 檢查/創建成功。")
+    
+
+    def add_plant(self, name, photo_path, mac_address):
+        with self.engine.connect() as conn:
+            conn.execute(text("INSERT INTO plants (name, photo_path, sheet_id, mac_address) VALUES (:name, :photo_path, :sheet_id, :mac_address)"),
+                         {"name": name, "photo_path": photo_path, "sheet_id": self.fixed_sheet_id, "mac_address": mac_address})
+            conn.commit()
+    
     def delete_plant(self, plant_id):
         """
         刪除指定 plant_id 的所有數據，包括 Google Sheets 和資料庫紀錄。
@@ -96,13 +104,6 @@ class PlantModel:
         except Exception as e:
             logging.error(f"刪除植物時發生錯誤: {e}")
             return False, str(e)
-
-    def add_plant(self, name, photo_path, mac_address):
-        with self.engine.connect() as conn:
-            conn.execute(text("INSERT INTO plants (name, photo_path, sheet_id, mac_address) VALUES (:name, :photo_path, :sheet_id, :mac_address)"),
-                         {"name": name, "photo_path": photo_path, "sheet_id": self.fixed_sheet_id, "mac_address": mac_address})
-            conn.commit()
-    
     def get_plant_by_mac(self, mac_address):
         with self.engine.connect() as conn:
             return conn.execute(text("SELECT * FROM plants WHERE mac_address=:mac_address"), {"mac_address": mac_address}).first()
@@ -143,15 +144,6 @@ class PlantModel:
                          {"name": name, "photo_path": photo_path, "id": plant_id})
             conn.commit()
             logging.info(f"植物 ID {plant_id} 的資料已更新。")
-
-    def delete_plant(self, plant_id):
-        plant = self.get_plant_by_id(plant_id)
-        if not plant:
-            return False, "找不到植物"
-        with self.engine.connect() as conn:
-            conn.execute(text("DELETE FROM plants WHERE id=:id"), {"id": plant_id})
-            conn.commit()
-        return True, plant
 
     def create_worksheet(self, identifier):
         try:
