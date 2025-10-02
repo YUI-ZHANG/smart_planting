@@ -15,7 +15,7 @@
 SoftwareSerial espSerial(3, 2); // D3=RX, D2=TX (依接線調整)
 
 // ---------------------- Google Sheets 和 Flask 設定 ----------------------
-const String scriptURL = "https://script.google.com/macros/s/AKfycbxKlUToUPLQXHGg5FEeKMyOT-wgKDPIqqz7sxSPP5VCubhWEXAigUZaRq3yq1L-uFrF_Q/exec";
+const String scriptURL = "https://script.google.com/macros/s/'yourAppScriptsKey'/exec";
 const String FLASK_SERVER_URL = "http://192.168.0.146:5000";
 
 // 遠端檢查間隔（單位：毫秒）
